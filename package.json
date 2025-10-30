@@ -1,0 +1,39 @@
+{
+  "name": "mongodb-demo",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test.js",
+    "start": "node app.js",
+    "start:server": "node app.js",
+    "start:frontend": "npm run dev --prefix frontend",
+    "dev": "concurrently -n backend,frontend -c green,cyan \"npm run start:server\" \"npm run start:frontend\"",
+    "init-data": "node initData.js",
+    "examples": "node examples.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@langchain/core": "^1.0.2",
+    "@langchain/google-genai": "^1.0.0",
+    "@langchain/langgraph": "^1.0.1",
+    "@langchain/mongodb": "^1.0.0",
+    "@langchain/openai": "^1.0.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "langchain": "^0.3.36",
+    "mongodb": "^6.20.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.2",
+    "concurrently": "^9.2.1"
+  }
+}

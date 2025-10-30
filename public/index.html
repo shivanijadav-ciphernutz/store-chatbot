@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Operations API - Query Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .query-section {
+            margin-bottom: 40px;
+        }
+
+        .query-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: 400;
+        }
+
+        .query-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            font-size: 1.1em;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.3s ease;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 172, 254, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #6c757d;
+            border: 2px solid #e9ecef;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+            transform: translateY(-2px);
+        }
+
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-section {
+            margin-top: 30px;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #4facfe;
+        }
+
+        .result-success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .result-error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .result-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .result-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .status-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .status-error {
+            background: #dc3545;
+            color: white;
+        }
+
+        .result-content {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+
+        .result-summary {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .result-summary h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+
+        .result-summary p {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        table {
+            margin-top: 15px;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        th {
+            background: #4facfe;
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .operation-summary {
+            margin-top: 15px;
+        }
+
+        .operation-summary h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .operation-details {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+
+        .operation-details p {
+            margin: 8px 0;
+            color: #555;
+        }
+
+        .error-summary {
+            margin-top: 15px;
+        }
+
+        .error-summary h3 {
+            color: #dc3545;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        .error-summary p {
+            margin: 8px 0;
+            color: #666;
+        }
+
+
+        .examples-section {
+            margin-top: 40px;
+        }
+
+        .examples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .example-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+
+        .example-card:hover {
+            border-color: #4facfe;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .example-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .example-query {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #666;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .example-query:hover {
+            background: #e9ecef;
+        }
+
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            border-top: 1px solid #e9ecef;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗄️ Database Operations API</h1>
+            <p>Enter natural language queries to perform database operations</p>
+        </div>
+
+        <div class="main-content">
+            <div class="query-section">
+                <h2>Query Interface</h2>
+                <form class="query-form" id="queryForm">
+                    <div class="input-group">
+                        <label for="queryInput">Enter your natural language query:</label>
+                        <textarea 
+                            id="queryInput" 
+                            placeholder="Example: Add a new product with name oral-b toothbrush which costs 30 rupees and has code OBTB"
+                            required
+                        ></textarea>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary">Execute Query</button>
+                        <button type="button" class="btn-secondary" onclick="clearForm()">Clear</button>
+                        <!-- <button type="button" class="btn-success" onclick="testConnection()">Test Connection</button> -->
+                    </div>
+                </form>
+
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Processing your query...</p>
+                </div>
+            </div>
+
+            <div class="result-section" id="resultSection" style="display: none;">
+                <div id="resultContainer"></div>
+            </div>
+
+            <div class="examples-section">
+                <h2>Example Queries</h2>
+                <div class="examples-grid">
+                    <div class="example-card">
+                        <div class="example-title">📝 Insert Operations</div>
+                        <div class="example-query" onclick="setQuery('Add a new product with name oral-b toothbrush which costs 30 rupees and has code OBTB')">
+                            Add a new product with name oral-b toothbrush which costs 30 rupees and has code OBTB
+                        </div>
+                        <div class="example-query" onclick="setQuery('add new products: solid masti kurkure, cream and onion chips, rajasthani chatni kurkure. all three products with 10 rupees price. put them under category snacks')">
+                            Add multiple products: solid masti kurkure, cream and onion chips, rajasthani chatni kurkure (bulk insert)
+                        </div>
+                    </div>
+
+                    <div class="example-card">
+                        <div class="example-title">🔍 Find Operations</div>
+                        <div class="example-query" onclick="setQuery('Find all products with price less than 50')">
+                            Find all products with price less than 50
+                        </div>
+                        <div class="example-query" onclick="setQuery('Find all products in snacks category')">
+                            Find all products in snacks category
+                        </div>
+                    </div>
+
+                    <div class="example-card">
+                        <div class="example-title">✏️ Update Operations</div>
+                        <div class="example-query" onclick="setQuery('Update product with code OBTB to have price 35')">
+                            Update product with code OBTB to have price 35
+                        </div>
+                        <div class="example-query" onclick="setQuery('Change user email from old@example.com to new@example.com')">
+                            Change user email from old@example.com to new@example.com
+                        </div>
+                    </div>
+
+                    <div class="example-card">
+                        <div class="example-title">🗑️ Delete Operations</div>
+                        <div class="example-query" onclick="setQuery('Delete all products with price greater than 100')">
+                            Delete all products with price greater than 100
+                        </div>
+                        <div class="example-query" onclick="setQuery('Remove user with ID 789')">
+                            Remove user with ID 789
+                        </div>
+                    </div>
+
+                    <div class="example-card">
+                        <div class="example-title">📊 Aggregation Operations</div>
+                        <div class="example-query" onclick="setQuery('Find all products with the same name more than once')">
+                            Find all products with the same name more than once
+                        </div>
+                        <div class="example-query" onclick="setQuery('Get total sales by category')">
+                            Get total sales by category
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Database Operations API - Powered by MongoDB & Google Gemini AI</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        // Check authentication status on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            
+            if (token) {
+                // Verify token with server
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/auth/verify`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        // Token is valid, redirect to chat
+                        window.location.href = 'chat.html';
+                        return;
+                    } else {
+                        // Token is invalid, clear it and redirect to login
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                    }
+                } catch (error) {
+                    console.error('Token verification error:', error);
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                }
+            }
+            
+            // No valid token, redirect to login
+            window.location.href = 'login.html';
+        });
+        
+        // Handle form submission
+        document.getElementById('queryForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            await executeQuery(query);
+        });
+
+        // Execute query function
+        async function executeQuery(query) {
+            const loading = document.getElementById('loading');
+            const resultSection = document.getElementById('resultSection');
+            const resultContainer = document.getElementById('resultContainer');
+            
+            // Show loading
+            loading.style.display = 'block';
+            resultSection.style.display = 'none';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                const result = await response.json();
+                
+                // Hide loading
+                loading.style.display = 'none';
+                
+                // Show result
+                displayResult(result);
+                
+            } catch (error) {
+                loading.style.display = 'none';
+                displayResult({
+                    success: false,
+                    error: 'Network Error',
+                    message: `Failed to connect to API: ${error.message}`
+                });
+            }
+        }
+
+        // Display result function
+        function displayResult(result) {
+            const resultSection = document.getElementById('resultSection');
+            const resultContainer = document.getElementById('resultContainer');
+            
+            const resultCard = document.createElement('div');
+            resultCard.className = `result-card ${result.success ? 'result-success' : 'result-error'}`;
+            
+            const statusClass = result.success ? 'status-success' : 'status-error';
+            const statusText = result.success ? 'SUCCESS' : 'ERROR';
+            
+            let resultContent = '';
+            console.log('result', result);
+            
+            if (result.success) {
+                // Format successful results in a user-friendly way
+                resultContent = `
+                    <div class="result-summary">
+                        <h3>📋 ${result.response.summary}</h3>
+                        <p><strong>Query:</strong> ${result.query}</p>
+                        <p><strong>Timestamp:</strong> ${new Date(result.timestamp).toLocaleString()}</p>
+                    </div>
+                `;
+                
+                // Display tool results if available
+                if (result.toolResults && result.toolResults.length > 0) {
+                    resultContent += `
+                        <div class="operation-summary">
+                            <h4>🔧 Tool Execution Results:</h4>
+                    `;
+                }
+                resultContent += result.response.data;
+            } else {
+                // Error format
+                resultContent = `
+                    <div class="error-summary">
+                        <h3>❌ ${result.message}</h3>
+                        <p><strong>Error:</strong> ${result.error}</p>
+                        <p><strong>Timestamp:</strong> ${new Date(result.timestamp).toLocaleString()}</p>
+                        ${result.suggestion ? `<p><strong>💡 Suggestion:</strong> ${result.suggestion}</p>` : ''}
+                    </div>
+                `;
+            }
+            
+            resultCard.innerHTML = `
+                <div class="result-header">
+                    <div class="result-title">${result.success ? '✅ Query Executed Successfully' : '❌ Query Failed'}</div>
+                    <div class="result-status ${statusClass}">${statusText}</div>
+                </div>
+                <div class="result-content">${resultContent}</div>
+            `;
+            
+            resultContainer.innerHTML = '';
+            resultContainer.appendChild(resultCard);
+            resultSection.style.display = 'block';
+            
+            // Scroll to result
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Set query from example
+        function setQuery(query) {
+            document.getElementById('queryInput').value = query;
+            document.getElementById('queryInput').focus();
+        }
+
+        // Clear form
+        function clearForm() {
+            document.getElementById('queryInput').value = '';
+            document.getElementById('resultSection').style.display = 'none';
+        }
+
+        // Test connection
+        async function testConnection() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/collections`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ Connection successful! API is running.\nFound ${result.count} collections: ${result.data.join(', ')}`);
+                } else {
+                    alert('❌ Connection failed: API is not responding properly.');
+                }
+            } catch (error) {
+                alert(`❌ Connection failed: ${error.message}`);
+            }
+        }
+
+        // Load examples on page load
+        window.addEventListener('load', async function() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/examples`);
+                const examples = await response.json();
+                console.log('API Examples loaded:', examples);
+            } catch (error) {
+                console.warn('Could not load API examples:', error);
+            }
+        });
+
+        // Utility function to capitalize first letter
+        function capitalizeFirst(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        // Utility function to format values properly
+        function formatValue(value) {
+            if (value === null || value === undefined) {
+                return 'N/A';
+            }
+            if (typeof value === 'object') {
+                if (Array.isArray(value)) {
+                    return value.map(item => formatValue(item)).join(', ');
+                }
+                if (value instanceof Date) {
+                    return value.toLocaleDateString() + ' ' + value.toLocaleTimeString();
+                }
+                // Format object as key-value pairs
+                return Object.entries(value)
+                    .map(([key, val]) => `${key}: ${formatValue(val)}`)
+                    .join(', ');
+            }
+            return String(value);
+        }
+
+        // Utility function to format objects for display
+        function formatObject(obj) {
+            if (obj === null || obj === undefined) {
+                return 'N/A';
+            }
+            if (typeof obj === 'object') {
+                if (Array.isArray(obj)) {
+                    return `[${obj.map(item => formatObject(item)).join(', ')}]`;
+                }
+                if (obj instanceof Date) {
+                    return obj.toLocaleDateString() + ' ' + obj.toLocaleTimeString();
+                }
+                // Format object as JSON-like string
+                return JSON.stringify(obj, null, 2);
+            }
+            return String(obj);
+        }
+    </script>
+</body>
+</html>
