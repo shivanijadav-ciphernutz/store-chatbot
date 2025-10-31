@@ -5,7 +5,9 @@ import { tool } from "@langchain/core/tools";
 import { collections, joins, llm } from './llm.js';
 import { initializeSampleData } from './initData.js';
 // Database tools for LLM tool calling
-export const databaseTools = (userRole) => {
+export const databaseTools = (user) => {
+  const userRole = typeof user === 'string' ? user : user?.role;
+  const userId = typeof user === 'object' ? (user?.userId || user?._id || user?.id) : undefined;
   if (userRole == "user") {
     return [
       // get user info
@@ -138,6 +140,145 @@ export const databaseTools = (userRole) => {
         query: z.record(z.any()).describe("MongoDB query object to identify the product or products"),
         limit: z.number().optional().describe("Maximum number of products to return"),
       }),
+    }),
+
+    // find products by category name (helper)
+    tool(async (parameters) => {
+      const { category_name, limit } = parameters;
+      const name = String(category_name || '').trim();
+      if (!name) {
+        return { success: false, message: "category_name is required" };
+      }
+      // Find matching categories by name (case-insensitive, partial match)
+      const categories = await dbOps.findDocuments("categories", { name: { $regex: name, $options: "i" } });
+      if (!categories.length) {
+        return { success: true, message: `No categories matched: ${name}`, data: [] };
+      }
+      const { ObjectId } = await import('mongodb');
+      const categoryIds = categories.map(c => new ObjectId(c._id));
+      const products = await dbOps.findDocuments("products", { category_id: { $in: categoryIds } });
+      const data = typeof limit === 'number' ? products.slice(0, Math.max(0, limit)) : products;
+      return {
+        success: true,
+        message: `Found ${data.length} product(s) in ${categories.length} matched categor(ies)` ,
+        data
+      };
+    }, {
+      name: "find_products_by_category_name",
+      description: "Find products by a human-readable category name (case-insensitive)",
+      schema: z.object({
+        category_name: z.string().describe("Human-readable category name, e.g., 'utensils'") ,
+        limit: z.number().optional().describe("Maximum number of products to return")
+      })
+    }),
+
+    // draft order (per signed-in user, stored server-side)
+    tool(async () => {
+      if (!userId) {
+        return { success: false, message: "Missing user context" };
+      }
+      const drafts = await dbOps.findDocuments("order_drafts", { user_id: userId });
+      const draft = drafts[0] || { user_id: userId, items: [], updatedAt: new Date() };
+      if (!draft.items.length) {
+        return { success: true, message: "No items selected yet", data: { user_id: userId, items: [] } };
+      }
+      const { ObjectId } = await import('mongodb');
+      const ids = draft.items.map(i => i.product_id).filter(Boolean).map(String).filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+      const products = ids.length ? await dbOps.findDocuments("products", { _id: { $in: ids } }) : [];
+      const map = new Map(products.map(p => [String(p._id), p]));
+      const items = draft.items.map(i => ({ product_id: i.product_id, quantity: i.quantity || 1, product: map.get(String(i.product_id)) || null }));
+      return { success: true, message: `Draft has ${items.length} item(s)`, data: { user_id: userId, items } };
+    }, {
+      name: "view_order_draft",
+      description: "View the current order draft (selected products) for the signed-in user",
+      schema: z.object({})
+    }),
+
+    tool(async (parameters) => {
+      if (!userId) {
+        return { success: false, message: "Missing user context" };
+      }
+      const { product_id, quantity } = parameters;
+      const qty = Math.max(1, quantity || 1);
+      const drafts = await dbOps.findDocuments("order_drafts", { user_id: userId });
+      const draft = drafts[0];
+      if (!draft) {
+        await dbOps.insertDocument("order_drafts", { user_id: userId, items: [{ product_id, quantity: qty }], createdAt: new Date(), updatedAt: new Date() });
+      } else {
+        const existing = draft.items.find(i => String(i.product_id) === String(product_id));
+        if (existing) existing.quantity += qty; else draft.items.push({ product_id, quantity: qty });
+        await dbOps.updateDocuments("order_drafts", { user_id: userId }, { $set: { items: draft.items, updatedAt: new Date() } });
+      }
+      return { success: true, message: "Added to order selection", data: { product_id, quantity: qty } };
+    }, {
+      name: "select_product",
+      description: "Add/increment a product in the current order draft",
+      schema: z.object({
+        product_id: z.string().describe("Product _id to select"),
+        quantity: z.number().optional().describe("Quantity to add (default 1)")
+      })
+    }),
+
+    tool(async (parameters) => {
+      if (!userId) {
+        return { success: false, message: "Missing user context" };
+      }
+      const { product_id } = parameters;
+      const drafts = await dbOps.findDocuments("order_drafts", { user_id: userId });
+      const draft = drafts[0];
+      if (!draft) return { success: true, message: "Nothing to remove", data: { removed: false } };
+      const newItems = draft.items.filter(i => String(i.product_id) !== String(product_id));
+      await dbOps.updateDocuments("order_drafts", { user_id: userId }, { $set: { items: newItems, updatedAt: new Date() } });
+      return { success: true, message: "Removed from selection", data: { product_id } };
+    }, {
+      name: "unselect_product",
+      description: "Remove a product from the current order draft",
+      schema: z.object({
+        product_id: z.string().describe("Product _id to remove")
+      })
+    }),
+
+    tool(async () => {
+      if (!userId) {
+        return { success: false, message: "Missing user context" };
+      }
+      await dbOps.updateDocuments("order_drafts", { user_id: userId }, { $set: { items: [], updatedAt: new Date() } });
+      return { success: true, message: "Selection cleared", data: { cleared: true } };
+    }, {
+      name: "clear_order_draft",
+      description: "Clear the current order draft",
+      schema: z.object({})
+    }),
+
+    tool(async () => {
+      if (!userId) {
+        return { success: false, message: "Missing user context" };
+      }
+      const drafts = await dbOps.findDocuments("order_drafts", { user_id: userId });
+      const draft = drafts[0];
+      if (!draft || !draft.items || draft.items.length === 0) {
+        return { success: false, message: "No selected products to finalize" };
+      }
+      const { ObjectId } = await import('mongodb');
+      const validIds = draft.items.map(i => i.product_id).filter(Boolean).map(String).filter(ObjectId.isValid).map(id => new ObjectId(id));
+      if (!validIds.length) return { success: false, message: "No valid product IDs in selection" };
+      const products = await dbOps.findDocuments("products", { _id: { $in: validIds } });
+      const priceMap = new Map(products.map(p => [String(p._id), p.price || 0]));
+      const total = draft.items.reduce((sum, i) => sum + (priceMap.get(String(i.product_id)) || 0) * (i.quantity || 1), 0);
+      const orderResult = await dbOps.insertDocument("orders", {
+        user_id: userId,
+        product_ids: draft.items.map(i => String(i.product_id)),
+        total_price: total,
+        order_status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      await dbOps.updateDocuments("order_drafts", { user_id: userId }, { $set: { items: [], updatedAt: new Date() } });
+      return { success: true, message: `Order placed with ID ${orderResult.insertedId}`, data: { orderId: String(orderResult.insertedId), total } };
+    }, {
+      name: "finalize_order",
+      description: "Create an order from the current order draft and clear the draft",
+      schema: z.object({})
     })]
   } else {
 
@@ -158,7 +299,7 @@ export const databaseTools = (userRole) => {
     },
     {
       name: "insert_category",
-      description: "Insert a new category into the categories collection",
+      description: "Insert a new category into the categories collection. If tool was called before adding a product, then use the id of the added category in this tool.",
       schema: z.object({
         name: z.string().describe("Category name"),
       }),
@@ -181,12 +322,13 @@ export const databaseTools = (userRole) => {
       };
     }, {
       name: "insert_product",
-      description: "Insert a new product into the products collection",
+      description: "Insert a new product into the products collection with category id after fetching it from the categories collection. If tool was called before adding a product, then use the id of the added category in this tool.",
       schema: z.object({
         name: z.string().describe("Product name"),
         price: z.number().describe("Product price in rupees"),
         category_id: z.string().describe("ID of the category the product belongs to. \
-          If the user provides a category name instead of an ID, first fetch the category document from the 'categories' collection by matching its 'name' field, then use its _id as the category_id. \
+          If the user provides a category name instead of an ID, first fetch the category document from the 'categories' collection by matching its 'name' field, then use its _id as the category_id in this tool. \
+          call find_categories tool to find the category id if category name is provided.\
           If the user already provides a valid category_id, use it directly without lookup."),
       }),
     }),
@@ -545,7 +687,7 @@ export const databaseTools = (userRole) => {
           };
       }, {
         name: "get_category_info",
-        description: "Get information about a category from the categories collection",
+        description: "Get information about a category from the categories collection. If it doen't find the category, Add new category using insert_category tool and then use the id in this tool.",
         schema: z.object({
           query: z.record(z.any()).describe("MongoDB query object to identify the category"),
         }),
@@ -595,7 +737,7 @@ export const databaseTools = (userRole) => {
           };
       }, {
         name: "find_categories",
-        description: "Find categories in the categories collection",
+        description: "Find categories in the categories collection. If it doen't find the category, Add new category using insert_category tool.",
         schema: z.object({
           query: z.record(z.any()).describe("MongoDB query object to identify the category or categories"),
           limit: z.number().optional().describe("Maximum number of categories to return"),
@@ -617,6 +759,35 @@ export const databaseTools = (userRole) => {
           query: z.record(z.any()).describe("MongoDB query object to identify the product or products"),
           limit: z.number().optional().describe("Maximum number of products to return"),
         }),
+      }),
+
+      // find products by category name (helper)
+      tool(async (parameters) => {
+        const { category_name, limit } = parameters;
+        const name = String(category_name || '').trim();
+        if (!name) {
+          return { success: false, message: "category_name is required" };
+        }
+        const categories = await dbOps.findDocuments("categories", { name: { $regex: name, $options: "i" } });
+        if (!categories.length) {
+          return { success: true, message: `No categories matched: ${name}`, data: [] };
+        }
+        const { ObjectId } = await import('mongodb');
+        const categoryIds = categories.map(c => new ObjectId(c._id));
+        const products = await dbOps.findDocuments("products", { category_id: { $in: categoryIds } });
+        const data = typeof limit === 'number' ? products.slice(0, Math.max(0, limit)) : products;
+        return {
+          success: true,
+          message: `Found ${data.length} product(s) in ${categories.length} matched categor(ies)`,
+          data
+        };
+      }, {
+        name: "find_products_by_category_name",
+        description: "Find products by a human-readable category name (case-insensitive)",
+        schema: z.object({
+          category_name: z.string().describe("Human-readable category name, e.g., 'utensils'") ,
+          limit: z.number().optional().describe("Maximum number of products to return")
+        })
       }),
   
       // get collection info

@@ -13,7 +13,7 @@ router.get('/', authenticateToken, async (req, res) => {
         const skip = (page - 1) * limit;
     
         const { items, total } = await dbOps.findDocumentsPaginated('orders', {
-          query: {},
+          query: { user_id: req.user.userId },
           projection: { password: 0 },
           sort: { [sortField]: sortOrder },
           skip,

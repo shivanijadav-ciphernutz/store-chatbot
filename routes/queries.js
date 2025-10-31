@@ -4,6 +4,43 @@ import { authenticateToken } from '../auth.js';
 import { getLLMWithTools, getChatMessageHistory, mapHistoryMessagesToChat } from '../llm.js';
 import { databaseTools } from '../tools.js';
 import { structuredLlm, systemMessage } from '../llm.js';
+import dbOps from '../db.js';
+
+// GET endpoint to fetch chat history
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const user = req.user;
+    const { sessionId: sessionIdFromQuery } = req.query;
+    const sessionId = sessionIdFromQuery || user.userId;
+    
+    const chatHistory = await getChatMessageHistory(sessionId);
+    const prior = await chatHistory.getMessages();
+    const priorAsChat = mapHistoryMessagesToChat(prior);
+    
+    // Convert to frontend format and detect HTML content
+    const messages = priorAsChat.map((msg, index) => ({
+      id: `history-${index}-${Date.now()}`,
+      role: msg.role,
+      content: msg.content,
+      // Detect HTML content (if content contains HTML tags)
+      isHtml: typeof msg.content === 'string' && /<[^>]+>/.test(msg.content)
+    }));
+    
+    res.json({
+      success: true,
+      messages,
+      sessionId,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching chat history',
+      error: error.message
+    });
+  }
+});
 
 router.post('/', authenticateToken, async (req, res) => {
     try {
@@ -17,16 +54,14 @@ router.post('/', authenticateToken, async (req, res) => {
         });
       }
   
-      const sessionId = sessionIdFromBody || user.userId; // default to per-user session
+      const sessionId = sessionIdFromBody || user.userId;
       const chatHistory = await getChatMessageHistory(sessionId);
       const prior = await chatHistory.getMessages();
       const priorAsChat = mapHistoryMessagesToChat(prior);
   
-      let systemMessageContent = systemMessage(user.role);
-      const llmWithTools = await getLLMWithTools(user.role);
-      // Save user message before invocation for consistency in transcripts
+      let systemMessageContent = systemMessage(user);
+      const llmWithTools = await getLLMWithTools(user);
       await chatHistory.addUserMessage(query);
-      // Get LLM response with tool calls, including prior history
       const response = await llmWithTools.invoke([
         { role: "system", content: systemMessageContent },
         ...priorAsChat,
@@ -39,12 +74,10 @@ router.post('/', authenticateToken, async (req, res) => {
           console.log(`🧩 Tool selected: ${toolCall.name}`);
           console.log(`🔧 Args:`, toolCall.args);
   
-          // Find the tool by name
-          let userTools = await databaseTools(user.role);
+          let userTools = await databaseTools(user);
           const tool = userTools.find(t => t.name === toolCall.name);
           if (!tool) throw new Error(`Tool ${toolCall.name} not found`);
   
-          // Directly run the tool function (LangChain's `tool` wrapper has `.invoke()`)
           const result = await tool.invoke(toolCall.args);
   
           toolResults.push({
@@ -55,8 +88,8 @@ router.post('/', authenticateToken, async (req, res) => {
         }
       }
   
-      // Step 3️⃣ Summarize or return results
       let finalResponse;
+      if (toolResults.length > 0) { 
         const summaryPrompt = `
         Summarize the following tool execution results for the user clearly:
         ${JSON.stringify(toolResults, null, 2)}
@@ -67,10 +100,16 @@ router.post('/', authenticateToken, async (req, res) => {
         ]);
   
         finalResponse = summary;
+      } else {
+        finalResponse = { data: response.content };
+      }
       finalResponse.dbcall = toolResults.length > 0;
-  
-      // Persist the assistant's response into history
-      const assistantText = typeof finalResponse === 'string' ? finalResponse : (finalResponse?.summary || '');
+    
+      finalResponse.summary = !finalResponse.dbcall ? finalResponse.data : finalResponse.summary;
+      // Store HTML data in history when available, otherwise store summary/text
+      const assistantText = typeof finalResponse === 'string' 
+        ? finalResponse 
+        : (finalResponse?.data && finalResponse.dbcall ? finalResponse.data : (finalResponse?.summary || finalResponse?.data || ''));
       await chatHistory.addAIMessage(assistantText);
   
       res.json({
@@ -90,5 +129,23 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
   });
+
+router.post('/clear', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId: sessionIdFromBody } = req.body || {};
+    const user = req.user;
+    const sessionId = sessionIdFromBody || user.userId;
+    const history = await getChatMessageHistory(sessionId);
+    if (typeof history.clear === 'function') {
+      await history.clear();
+    } else {
+      const collection = dbOps.getCollection('memory');
+      await collection.deleteMany({ sessionId });
+    }
+    res.json({ success: true, sessionId, message: 'Chat session cleared' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to clear chat session', error: error.message });
+  }
+});
 
 export default router;
