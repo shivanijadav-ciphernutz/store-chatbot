@@ -5,6 +5,8 @@ import { getLLMWithTools, getChatMessageHistory, mapHistoryMessagesToChat } from
 import { databaseTools } from '../tools.js';
 import { structuredLlm, systemMessage } from '../llm.js';
 import dbOps from '../db.js';
+import { createAgent } from "langchain"
+import { llm } from '../llm.js';
 
 // GET endpoint to fetch chat history
 router.get('/', authenticateToken, async (req, res) => {
@@ -23,7 +25,6 @@ router.get('/', authenticateToken, async (req, res) => {
       role: msg.role,
       content: msg.content,
       // Detect HTML content (if content contains HTML tags)
-      isHtml: typeof msg.content === 'string' && /<[^>]+>/.test(msg.content)
     }));
     
     res.json({
@@ -59,63 +60,38 @@ router.post('/', authenticateToken, async (req, res) => {
       const prior = await chatHistory.getMessages();
       const priorAsChat = mapHistoryMessagesToChat(prior);
   
-      let systemMessageContent = systemMessage(user);
-      const llmWithTools = await getLLMWithTools(user);
+      let systemMessageContent = await systemMessage(user);
+      const tools = await databaseTools(user);
       await chatHistory.addUserMessage(query);
-      const response = await llmWithTools.invoke([
-        { role: "system", content: systemMessageContent },
-        ...priorAsChat,
-        { role: "user", content: query }
-      ]);
-  
-      let toolResults = [];
-      if (response.tool_calls && response.tool_calls.length > 0) {
-        for (const toolCall of response.tool_calls) {
-          console.log(`🧩 Tool selected: ${toolCall.name}`);
-          console.log(`🔧 Args:`, toolCall.args);
-  
-          let userTools = await databaseTools(user);
-          const tool = userTools.find(t => t.name === toolCall.name);
-          if (!tool) throw new Error(`Tool ${toolCall.name} not found`);
-  
-          const result = await tool.invoke(toolCall.args);
-  
-          toolResults.push({
-            tool: toolCall.name,
-            args: toolCall.args,
-            result
-          });
-        }
-      }
-  
-      let finalResponse;
-      if (toolResults.length > 0) { 
+
+      const agent = createAgent({
+        model: llm,
+        tools,
+        systemMessage: systemMessageContent,
+      });
+      const response = await agent.invoke({
+        messages: [...priorAsChat, { role: "user", content: query }],
+      });
+
+      const lastMessage = response.messages?.at(-2);
+
         const summaryPrompt = `
         Summarize the following tool execution results for the user clearly:
-        ${JSON.stringify(toolResults, null, 2)}
+        ${lastMessage?.content ?? 'No message from the agent'}
         `;
-        const summary = await structuredLlm.invoke([
-          { role: "system", content: "You are a summarizer." },
-          { role: "user", content: summaryPrompt }
-        ]);
-  
-        finalResponse = summary;
-      } else {
-        finalResponse = { data: response.content };
-      }
-      finalResponse.dbcall = toolResults.length > 0;
-    
-      finalResponse.summary = !finalResponse.dbcall ? finalResponse.data : finalResponse.summary;
-      // Store HTML data in history when available, otherwise store summary/text
-      const assistantText = typeof finalResponse === 'string' 
-        ? finalResponse 
-        : (finalResponse?.data && finalResponse.dbcall ? finalResponse.data : (finalResponse?.summary || finalResponse?.data || ''));
-      await chatHistory.addAIMessage(assistantText);
+      const summary = await structuredLlm.invoke([
+        { role: "system", content: `You are a summarizer. based on below message, summarize the result for the user clearly and inform about next steps if any: ${systemMessageContent}` },
+        { role: "user", content: summaryPrompt }
+      ]);
+
+      // Format summary as JSON string to enssummarysistent storage and retrieval
+      const summaryString = JSON.stringify(summary);
+      await chatHistory.addAIMessage(summaryString);
   
       res.json({
         success: true,
         query: query,
-        response: finalResponse,
+        response: summary,
         sessionId,
         timestamp: new Date().toISOString()
       });

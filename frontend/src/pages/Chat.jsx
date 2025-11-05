@@ -38,14 +38,43 @@ export default function Chat() {
         try {
           const historyRes = await apiGet('/api/query');
           if (historyRes.success && historyRes.messages && historyRes.messages.length > 0) {
-            // Convert history messages to display format and detect HTML
-            const historyMessages = historyRes.messages.map((msg, index) => ({
-              id: msg.id || `history-${index}-${Date.now()}`,
-              role: msg.role,
-              content: msg.content,
-              // Detect HTML content (if content contains HTML tags)
-              isHtml: typeof msg.content === 'string' && /<[^>]+>/.test(msg.content)
-            }));
+            // Convert history messages to display format
+            const historyMessages = historyRes.messages.map((msg, index) => {
+              let parsedContent = msg.content;
+              let structuredData = null;
+              
+              // Check if content is already an object with summary/data
+              if (msg.content && typeof msg.content === 'object' && ('summary' in msg.content || 'data' in msg.content)) {
+                structuredData = msg.content;
+              } else if (typeof msg.content === 'string') {
+                // Try to parse content if it's a JSON string with summary and data
+                try {
+                  const parsed = JSON.parse(msg.content);
+                  if (parsed && typeof parsed === 'object' && ('summary' in parsed || 'data' in parsed)) {
+                    structuredData = parsed;
+                  }
+                } catch {
+                  // Not JSON, continue with regular content
+                }
+              }
+              
+              // If we found structured data, format it properly
+              if (structuredData) {
+                return {
+                  id: msg.id || `history-${index}-${Date.now()}`,
+                  role: msg.role,
+                  // summary: structuredData.summary || '',
+                  data: structuredData.data || '',
+                };
+              }
+              
+              // For simple string messages or if parsing failed
+              return {
+                id: msg.id || `history-${index}-${Date.now()}`,
+                role: msg.role,
+                content: typeof parsedContent === 'string' ? parsedContent : String(parsedContent),
+              };
+            });
             setMessages(historyMessages);
           } else {
             // No history, show welcome message
@@ -95,12 +124,28 @@ export default function Chat() {
       });
       const result = await res.json();
       if (result.success) {
-        const hasHtmlData = !!(result.response?.dbcall) && !!(result.response?.data) && String(result.response.data).trim().length > 0;
-        const assistantContent = hasHtmlData ? (result.response.data) : (result.response?.summary ?? '');
-        setMessages(prev => [
-          ...prev,
-          { id: crypto.randomUUID(), role: 'assistant', content: String(assistantContent), isHtml: hasHtmlData }
-        ]);
+        // Handle structured response with both summary and data
+        const response = result.response || {};
+        // const hasSummary = response.summary && String(response.summary).trim().length > 0;
+        const hasData = response.data && String(response.data).trim().length > 0;
+        // const hasHtmlData = hasData && /<[^>]+>/.test(String(response.data));
+        
+        // Create message object with both summary and data if available
+        const assistantMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant'
+        };
+        
+        // if (hasData) {
+        //   // Store both summary and data separately for proper rendering
+        //   // assistantMessage.summary = hasSummary ? String(response.summary) : '';
+        //   assistantMessage.data = hasData ? String(response.data) : '';
+        // } else {
+          // Fallback for simple string responses
+          assistantMessage.content = String(response.data || '');
+        // }
+        
+        setMessages(prev => [...prev, assistantMessage]);
       } else {
         setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: `Error: ${result.message || 'Something went wrong'}` }]);
       }
@@ -150,8 +195,14 @@ export default function Chat() {
             {messages.map(m => (
               <div key={m.id} style={{ marginBottom: 15, display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 <div style={{ maxWidth: '70%', padding: '12px 16px', borderRadius: 12, background: m.role === 'user' ? '#667eea' : 'white', color: m.role === 'user' ? 'white' : '#333', border: m.role === 'user' ? 'none' : '1px solid #e1e5e9', whiteSpace: 'pre-wrap' }}>
-                  {m.isHtml && m.role !== 'user' ? (
-                    <div dangerouslySetInnerHTML={{ __html: m.content }} />
+                  {m.role !== 'user' && m.data !== undefined ? (
+                    <div>
+                      {m.data && m.data.trim().length > 0 && (
+                        <div style={{ marginBottom: m.data && m.data.trim().length > 0 ? '12px' : 0, whiteSpace: 'pre-wrap' }}>
+                          <div dangerouslySetInnerHTML={{ __html: m.data }} />
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     m.content
                   )}

@@ -5,7 +5,7 @@ import { tool } from "@langchain/core/tools";
 import { collections, joins, llm } from './llm.js';
 import { initializeSampleData } from './initData.js';
 // Database tools for LLM tool calling
-export const databaseTools = (user) => {
+export const databaseTools = async (user) => {
   const userRole = typeof user === 'string' ? user : user?.role;
   const userId = typeof user === 'object' ? (user?.userId || user?._id || user?.id) : undefined;
   if (userRole == "user") {
@@ -44,7 +44,7 @@ export const databaseTools = (user) => {
     
     // get product info
     tool(async (parameters) => {
-      const productInfo = await dbOps.findDocuments("products", parameters.query);
+      const productInfo = await dbOps.findDocuments("products", parameters.query, parameters.projection);
         return {
           success: true,
           message: `Found ${productInfo.length} product(s)`,
@@ -52,9 +52,10 @@ export const databaseTools = (user) => {
         };
     }, {
       name: "get_product_info",
-      description: "Get information about a product from the products collection",
+      description: "Get information about a product from the products collection and category name from the categories collection",
       schema: z.object({
         query: z.record(z.any()).describe("MongoDB query object to identify the product"),
+        projection: z.record(z.any()).describe("MongoDB projection object to project the product"),
       }),
     }),
 
@@ -127,7 +128,7 @@ export const databaseTools = (user) => {
 
     // find products
     tool(async (parameters) => {
-      const products = await dbOps.findDocuments("products", parameters.query);
+      const products = await dbOps.findDocuments("products", parameters.query, parameters.projection);
         return {
           success: true,
           message: `Found ${products.length} product(s)`,
@@ -139,6 +140,7 @@ export const databaseTools = (user) => {
       schema: z.object({
         query: z.record(z.any()).describe("MongoDB query object to identify the product or products"),
         limit: z.number().optional().describe("Maximum number of products to return"),
+        projection: z.record(z.any()).describe("MongoDB projection object to project the product"),
       }),
     }),
 
@@ -192,6 +194,45 @@ export const databaseTools = (user) => {
       name: "view_order_draft",
       description: "View the current order draft (selected products) for the signed-in user",
       schema: z.object({})
+    }),
+
+    tool(async(parameters) => {
+      let updateOrderDoc;
+        if (parameters.update && parameters.update.$set) {
+          updateOrderDoc = {
+            $set: {
+              ...parameters.update.$set,
+              updatedAt: new Date()
+            }
+          };
+        } else {
+          updateOrderDoc = {
+            $set: {
+              ...parameters.update,
+              updatedAt: new Date()
+            }
+          };
+        }
+        
+        const updateOrderResult = await dbOps.updateDocuments(
+          "orders",
+          parameters.query,
+          updateOrderDoc
+        );
+        
+        return {
+          success: true,
+          message: `Updated ${updateOrderResult.modifiedCount} orders`,
+          data: updateOrderResult
+        };
+    }, 
+    {
+      name: "update_order",
+      description: "Update an order in the orders collection",
+      schema: z.object({
+        query: z.record(z.any()).describe("MongoDB query object to identify the order to update"),
+        update: z.record(z.any()).describe("MongoDB update object with fields to update"),
+      }),
     }),
 
     tool(async (parameters) => {
@@ -361,7 +402,7 @@ export const databaseTools = (user) => {
         product_ids: z.array(z.string()).describe("Array of product IDs the order contains. \
             If the user provides a product name instead of an ID, first fetch the product document from the 'products' collection by matching its 'name' field, then use its _id as the product_id. \
             If the user already provides a valid product_ids, use it directly without lookup."),
-        total_price: z.number().describe("Total price of the order in rupees"),
+        total_price: z.number().describe("Total price of the order in rupees calculated from the product prices and quantities"),
         order_status: z.string().describe("Status of the order (pending, completed, cancelled)"),
       }),
     }),
@@ -663,7 +704,7 @@ export const databaseTools = (user) => {
       
       // get product info
       tool(async (parameters) => {
-        const productInfo = await dbOps.findDocuments("products", parameters.query);
+        const productInfo = await dbOps.findDocuments("products", parameters.query, parameters.projection);
           return {
             success: true,
             message: `Found ${productInfo.length} product(s)`,
@@ -671,9 +712,10 @@ export const databaseTools = (user) => {
           };
       }, {
         name: "get_product_info",
-        description: "Get information about a product from the products collection",
+        description: "Get information about a product from the products collection and category name from the categories collection",
         schema: z.object({
           query: z.record(z.any()).describe("MongoDB query object to identify the product"),
+          projection: z.record(z.any()).describe("MongoDB projection object to project the product"),
         }),
       }),
   
@@ -754,7 +796,7 @@ export const databaseTools = (user) => {
           };
       }, {
         name: "find_products",
-        description: "Find products in the products collection",
+        description: "Find products in the products collection with joined category names but not the ids",
         schema: z.object({
           query: z.record(z.any()).describe("MongoDB query object to identify the product or products"),
           limit: z.number().optional().describe("Maximum number of products to return"),

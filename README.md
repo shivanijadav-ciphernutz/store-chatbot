@@ -17,7 +17,7 @@ A scalable API that performs database operations based on natural language input
 
 1. **Database Operations (`db.js`)**: MongoDB connection and basic CRUD operations
 2. **LLM Integration (`llm.js`)**: Google Gemini AI setup
-3. **Tool Definitions (`databaseTools.js`)**: Database tools bound to LLM
+3. **Tool Definitions (`tools.js`)**: Database tools bound to LLM
 4. **API Server (`app.js`)**: Express server with endpoints
 5. **Frontend (`public/index.html`)**: Web interface for testing
 
